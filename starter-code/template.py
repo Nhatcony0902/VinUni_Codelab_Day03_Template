@@ -20,9 +20,14 @@ Action: {{"name": "<tên tool>", "args": {{<tham số>}}}}
 Observation: <Kết quả từ tool>
 ... (Lặp lại cho tới khi có đủ dữ liệu)
 Final Answer: <Câu trả lời hoàn chỉnh cho khách hàng>
+
+Quy tắc xử lý lỗi:
+- Nếu Observation chứa "error", KHÔNG gọi lại cùng tool với cùng tham số.
+- Nếu gặp lỗi từ tool 2 lần, dừng ngay và đưa ra Final Answer thông báo lỗi cho khách hàng.
 """
 
 AIRPORT_CODES = ["SGN", "HAN", "DAD"]
+MAX_TOOL_ERRORS = 2
 FAQ_ANSWER = (
     "Chính sách Vinpearl: vé máy bay trong combo Vinpearl được đổi/hoàn theo điều kiện "
     "hạng vé của hãng bay; vui lòng liên hệ hotline Vinpearl để được hỗ trợ chi tiết."
@@ -167,6 +172,13 @@ class ReActAgent:
             lines = [json.dumps(observation, ensure_ascii=False)]
         return title + "\n" + "\n".join(f"   - {line}" for line in lines)
 
+    def count_tool_errors(self) -> int:
+        """Trap 3: đếm số Observation lỗi để dừng sớm thay vì lặp lại vô ích."""
+        return sum(
+            1 for step in self.trace
+            if isinstance(step.get("observation"), dict) and "error" in step["observation"]
+        )
+
     def build_final_answer(self) -> str:
         sections = [
             self.format_observation(step["action"]["name"], step["observation"])
@@ -218,7 +230,7 @@ class ReActAgent:
                 "observation": observation
             }
             self.trace.append(step)
-            if len(plan) == 1:
+            if len(plan) == 1 or self.count_tool_errors() >= MAX_TOOL_ERRORS:
                 step["final_answer"] = self.build_final_answer()
                 return step["final_answer"], True
             return json.dumps(observation, ensure_ascii=False), False
